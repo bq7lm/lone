@@ -16,6 +16,7 @@
                 {% block main_content %}{% endblock %}
             </div>
 
+            <!-- Нижняя панель -->
             <div class="bottom-nav">
                 <a href="{{ url_for('chats') }}" class="bottom-nav-item" title="Чаты">
                     <img src="{{ url_for('static', filename='chats.png') }}" alt="Чаты" class="bottom-nav-icon">
@@ -28,7 +29,7 @@
                 </a>
             </div>
 
-            <!-- Скрипт для глобальной переменной user_id -->
+            <!-- Скрипт для глобальной переменной chatPageUserId -->
             <script>
                 const chatPageUserId = {{ user_id | default('null') }};
             </script>
