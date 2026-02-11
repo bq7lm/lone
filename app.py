@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from datetime import datetime
-
+import re
 from flask import Flask, render_template, redirect, url_for, request, flash
 from flask_socketio import SocketIO, emit, join_room
 from flask_login import (
@@ -35,6 +35,8 @@ DATABASE = "lone.db"
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
+
+        # Таблица пользователей
         c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,6 +45,13 @@ def init_db():
             avatar TEXT DEFAULT 'snowman.png'
         )
         """)
+
+        # Создаем уникальный индекс username без учета регистра
+        c.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username COLLATE NOCASE)
+        """)
+
+        # Таблица сообщений
         c.execute("""
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +61,7 @@ def init_db():
             timestamp TEXT
         )
         """)
+
         conn.commit()
 
 
@@ -104,14 +114,26 @@ def home():
 def register():
     form = RegisterForm()
     if form.validate_on_submit():
-        hashed_pw = generate_password_hash(form.password.data, method="sha256")
-        default_avatar = "snowman.png"  # аватар по умолчанию
+        username = form.username.data.strip().lower()  # нижний регистр
+        password = form.password.data.strip()          # пароль из формы
+
+        # Проверка формата
+        import re
+        if not re.match(r'^[a-z0-9_]{4,10}$', username):
+            flash("Username: 4-10 символов, латиница, цифры, _")
+            return render_template("register.html", form=form)
+        if not re.match(r'^[a-zA-Z0-9]{6,32}$', password):
+            flash("Пароль: 6-32 символа, латиница и цифры")
+            return render_template("register.html", form=form)
+
+        hashed_pw = generate_password_hash(password, method="pbkdf2:sha256")
+        default_avatar = "snowman.png"
         try:
             with sqlite3.connect(DATABASE) as conn:
                 c = conn.cursor()
                 c.execute(
                     "INSERT INTO users (username, password, avatar) VALUES (?, ?, ?)",
-                    (form.username.data, hashed_pw, default_avatar)
+                    (username, hashed_pw, default_avatar)
                 )
                 conn.commit()
             flash("Регистрация успешна. Войдите.")
@@ -119,8 +141,6 @@ def register():
         except sqlite3.IntegrityError:
             flash("Username уже занят.")
     return render_template("register.html", form=form)
-
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -219,23 +239,75 @@ def search():
 @app.route("/account", methods=["GET", "POST"])
 @login_required
 def account():
-    avatars = ["rabbit.png", "dog.png", "cat.png", "snowman.png", "lion.png"]  # список доступных
+    avatars = ["rabbit.png", "dog.png", "cat.png", "snowman.png", "lion.png"]
     selected_avatar = None
 
     if request.method == "POST":
-        selected_avatar = request.form.get("avatar")
-        if selected_avatar in avatars:
-            with sqlite3.connect(DATABASE) as conn:
-                c = conn.cursor()
-                c.execute("UPDATE users SET avatar=? WHERE id=?", (selected_avatar, current_user.id))
-                conn.commit()
+        with sqlite3.connect(DATABASE) as conn:
+            c = conn.cursor()
 
+            # ---- Аватар ----
+            avatar_choice = request.form.get("avatar")
+            if avatar_choice in avatars:
+                c.execute("UPDATE users SET avatar=? WHERE id=?", (avatar_choice, current_user.id))
+
+            # ---- Username ----
+            new_username = request.form.get("username", "").strip().lower()
+            if new_username:
+                if not re.match(r'^[a-z0-9_]{4,10}$', new_username):
+                    flash("Username: 4-10 символов, латиница, цифры и _")
+                else:
+                    try:
+                        c.execute("UPDATE users SET username=? WHERE id=?", (new_username, current_user.id))
+                    except sqlite3.IntegrityError:
+                        flash("Такой username уже занят.")
+
+            # ---- Новый пароль ----
+            new_password = request.form.get("new_password", "").strip()
+            confirm_password = request.form.get("confirm_password", "").strip()
+            if new_password or confirm_password:  # если хоть одно поле заполнено
+                if new_password != confirm_password:
+                    flash("Пароли не совпадают")
+                elif not re.match(r'^[a-zA-Z0-9]{6,32}$', new_password):
+                    flash("Пароль: 6-32 символа, латиница и цифры")
+                else:
+                    hashed_pw = generate_password_hash(new_password, method="pbkdf2:sha256")
+
+                    c.execute("UPDATE users SET password=? WHERE id=?", (hashed_pw, current_user.id))
+
+            conn.commit()
+
+        flash("Настройки обновлены")
+
+    # Получаем текущий avatar
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
         c.execute("SELECT avatar FROM users WHERE id=?", (current_user.id,))
         selected_avatar = c.fetchone()[0]
 
     return render_template("account.html", avatars=avatars, selected_avatar=selected_avatar)
+
+    # Получаем текущий avatar
+    with sqlite3.connect(DATABASE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT avatar FROM users WHERE id=?", (current_user.id,))
+        selected_avatar = c.fetchone()[0]
+
+    return render_template("account.html", avatars=avatars, selected_avatar=selected_avatar)
+
+@app.route("/check_username", methods=["POST"])
+@login_required
+def check_username():
+    username = request.form.get("username", "").strip().lower()
+    if not re.match(r'^[a-z0-9_]{4,10}$', username):
+        return {"status": "invalid"}
+    with sqlite3.connect(DATABASE) as conn:
+        c = conn.cursor()
+        c.execute("SELECT id FROM users WHERE username=? AND id!=?", (username, current_user.id))
+        if c.fetchone():
+            return {"status": "taken"}
+    return {"status": "ok"}
+
 
 # --- SOCKET.IO ---
 

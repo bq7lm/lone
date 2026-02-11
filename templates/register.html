@@ -4,7 +4,6 @@
 
 <div class="auth-box">
 
-    <!-- Иконка и название -->
     <div class="auth-logo">
         <img src="{{ url_for('static', filename='lone-icon.png') }}" alt="Lone Icon">
         <span class="auth-title">Lone</span>
@@ -23,7 +22,13 @@
             {{ form.password(placeholder="Пароль", id="password") }}
         </div>
 
-        <div id="register-feedback" class="feedback"></div>
+        <div id="register-feedback" class="feedback">
+            {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {{ messages[0] }}
+            {% endif %}
+            {% endwith %}
+        </div>
 
         <button class="auth-btn" type="submit">Создать аккаунт</button>
     </form>
@@ -37,21 +42,30 @@
 <script>
 const regForm = document.getElementById('register-form');
 const regFeedback = document.getElementById('register-feedback');
+const usernameInput = document.getElementById('username');
+const passwordInput = document.getElementById('password');
+
+// Приводим username к нижнему регистру сразу
+usernameInput.addEventListener('input', () => {
+    usernameInput.value = usernameInput.value.toLowerCase();
+});
 
 regForm.addEventListener('submit', (e) => {
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value.trim();
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
     regFeedback.innerHTML = '';
 
-    // Проверка пароля
-    if (password.length < 6) {
+    // Проверка username
+    if (!/^[a-z0-9_]{4,10}$/.test(username)) {
         e.preventDefault();
-        regFeedback.innerHTML = 'Пароль слишком короткий';
+        regFeedback.innerHTML = 'Username: 4-10 символов, латиница, цифры, _';
         return;
     }
-    if (!/^[A-Za-z0-9]+$/.test(password)) {
+
+    // Проверка пароля
+    if (!/^[a-zA-Z0-9]{6,32}$/.test(password)) {
         e.preventDefault();
-        regFeedback.innerHTML = 'Пароль содержит недопустимые символы';
+        regFeedback.innerHTML = 'Пароль: 6-32 символа, латиница и цифры';
         return;
     }
 });

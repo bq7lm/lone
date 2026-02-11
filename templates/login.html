@@ -4,12 +4,10 @@
 
 <div class="auth-box">
 
-    <!-- Вместо auth-logo вертикально -->
     <div class="auth-logo">
         <img src="{{ url_for('static', filename='lone-icon.png') }}" alt="Lone Icon">
         <span class="auth-title">Lone</span>
     </div>
-
 
     <p class="auth-sub">Вход в аккаунт</p>
 
@@ -24,7 +22,13 @@
             {{ form.password(placeholder="Пароль", id="password") }}
         </div>
 
-        <div id="login-feedback" class="feedback"></div>
+        <div id="login-feedback" class="feedback">
+            {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {{ messages[0] }}
+            {% endif %}
+            {% endwith %}
+        </div>
 
         <button class="auth-btn" type="submit">Войти</button>
     </form>
@@ -38,23 +42,96 @@
 <script>
 const form = document.getElementById('login-form');
 const feedback = document.getElementById('login-feedback');
+const usernameInput = document.getElementById('username');
+const passwordInput = document.getElementById('password');
+
+// Приводим username к нижнему регистру
+usernameInput.addEventListener('input', () => {
+    usernameInput.value = usernameInput.value.toLowerCase();
+});
 
 form.addEventListener('submit', (e) => {
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value.trim();
     feedback.innerHTML = '';
+
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
 
     if (username.length < 4) {
         e.preventDefault();
         feedback.innerHTML = 'Username слишком короткий';
         return;
     }
+    if (!/^[a-z0-9_]+$/.test(username)) {
+        e.preventDefault();
+        feedback.innerHTML = 'Username содержит недопустимые символы';
+        return;
+    }
+
     if (password.length < 6) {
         e.preventDefault();
         feedback.innerHTML = 'Пароль слишком короткий';
+        return;
+    }
+    if (!/^[a-zA-Z0-9]+$/.test(password)) {
+        e.preventDefault();
+        feedback.innerHTML = 'Пароль содержит недопустимые символы';
         return;
     }
 });
 </script>
 
 {% endblock %}
+
+
+
+<script>
+const form = document.getElementById('login-form');
+const feedback = document.getElementById('login-feedback');
+const usernameInput = document.getElementById('username');
+const passwordInput = document.getElementById('password');
+
+// Приводим username к нижнему регистру
+usernameInput.addEventListener('input', () => {
+    usernameInput.value = usernameInput.value.toLowerCase();
+});
+
+// Проверка перед submit
+form.addEventListener('submit', (e) => {
+    feedback.innerHTML = '';
+
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+
+    if (username.length < 4) {
+        e.preventDefault();
+        feedback.innerHTML = 'Username слишком короткий';
+        return;
+    }
+    if (!/^[a-z0-9_]+$/.test(username)) {
+        e.preventDefault();
+        feedback.innerHTML = 'Username содержит недопустимые символы';
+        return;
+    }
+
+    if (password.length < 6) {
+        e.preventDefault();
+        feedback.innerHTML = 'Пароль слишком короткий';
+        return;
+    }
+    if (!/^[a-zA-Z0-9]+$/.test(password)) {
+        e.preventDefault();
+        feedback.innerHTML = 'Пароль содержит недопустимые символы';
+        return;
+    }
+});
+
+// Авто-показ flash при загрузке страницы
+window.addEventListener('DOMContentLoaded', () => {
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+        feedback.style.color = 'lime';
+        feedback.textContent = '{{ messages[0] }}';
+    {% endif %}
+    {% endwith %}
+});
+</script>
