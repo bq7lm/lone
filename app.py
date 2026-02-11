@@ -39,7 +39,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            avatar TEXT DEFAULT 'snowman.png'
         )
         """)
         c.execute("""
@@ -53,25 +54,28 @@ def init_db():
         """)
         conn.commit()
 
+
 init_db()
 
 
 # --- USER MODEL ---
 
 class User(UserMixin):
-    def __init__(self, id, username):
+    def __init__(self, id, username, avatar="snowman.png"):
         self.id = id
         self.username = username
+        self.avatar = avatar
+
 
 
 @login_manager.user_loader
 def load_user(user_id):
     with sqlite3.connect(DATABASE) as conn:
         c = conn.cursor()
-        c.execute("SELECT id, username FROM users WHERE id=?", (user_id,))
+        c.execute("SELECT id, username, avatar FROM users WHERE id=?", (user_id,))
         user = c.fetchone()
         if user:
-            return User(user[0], user[1])
+            return User(user[0], user[1], user[2])
     return None
 
 

@@ -1,10 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="chat-header">
-    <a href="{{ url_for('chats') }}" class="back-btn">← Назад</a>
-    <img src="{{ url_for('static', filename='avatars/' + partner_avatar) }}" class="chat-avatar" alt="{{ partner }}">
-    <span class="chat-name">{{ partner }}</span>
+<div class="chat-header" style="display: flex; align-items: center; justify-content: space-between;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <img src="{{ url_for('static', filename='avatars/' + partner_avatar) }}" class="chat-avatar" alt="{{ partner }}">
+        <span class="chat-name">{{ partner }}</span>
+    </div>
+
+    <a href="{{ url_for('chats') }}" class="bottom-nav-item" title="Чаты">
+        <img src="{{ url_for('static', filename='lone-icon.png') }}" class="bottom-nav-icon" alt="Чаты">
+    </a>
 </div>
 
 <div id="chat" class="chat-box">

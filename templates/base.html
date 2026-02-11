@@ -8,36 +8,34 @@
 </head>
 <body>
 
-{% if current_user.is_authenticated %}
-<div class="app">
-    
+<div class="app-wrapper">
+    {% block content %}
+        {% if current_user.is_authenticated %}
+            <!-- Основной контент приложения -->
+            <div class="main">
+                {% block main_content %}{% endblock %}
+            </div>
 
-    <!-- Sidebar -->
-    <div class="sidebar">
-        <div class="logo">
-            <img src="{{ url_for('static', filename='lone-icon.png') }}" alt="Lone Icon Sidebar">
-            <span class="logo-text">Lone</span>
-        </div>
+            <div class="bottom-nav">
+                <a href="{{ url_for('chats') }}" class="bottom-nav-item" title="Чаты">
+                    <img src="{{ url_for('static', filename='chats.png') }}" alt="Чаты" class="bottom-nav-icon">
+                </a>
+                <a href="{{ url_for('search') }}" class="bottom-nav-item" title="Поиск">
+                    <img src="{{ url_for('static', filename='magnifying_glass.png') }}" alt="Поиск" class="bottom-nav-icon">
+                </a>
+                <a href="{{ url_for('account') }}" class="bottom-nav-item avatar-nav" title="Аккаунт">
+                    <img src="{{ url_for('static', filename='avatars/' + current_user.avatar) }}" alt="Аватар" class="avatar-nav-img">
+                </a>
+            </div>
 
-        <a href="{{ url_for('chats') }}" class="nav-item">💬 Чаты</a>
-        <a href="{{ url_for('search') }}" class="nav-item">🔍 Поиск</a>
-        <a href="{{ url_for('account') }}" class="nav-item">⚙ Аккаунт</a>
-    </div>
-
-    <!-- Main -->
-    <div class="main">
-{% else %}
-<div class="auth-container">
-{% endif %}
-
-        {% block content %}{% endblock %}
-
-{% if current_user.is_authenticated %}
-    </div>
+        {% else %}
+            <!-- Форма авторизации -->
+            <div class="auth-container">
+                {% block auth_content %}{% endblock %}
+            </div>
+        {% endif %}
+    {% endblock %}
 </div>
-{% else %}
-</div>
-{% endif %}
 
 </body>
 </html>
