@@ -174,16 +174,18 @@ def login():
             user = c.fetchone()
             if user and check_password_hash(user[2], password):
                 login_user(User(user[0], user[1], user[3]))
+                
                 ip = get_real_ip()
-
                 device = get_device()
 
-
-                c.execute("""
-                INSERT INTO login_logs (user_id, username, ip_address, user_agent, login_time)
-                VALUES (%s, %s, %s, %s, %s)
-                """, (user[0], user[1], ip, user_agent, datetime.now()))
-                conn.commit()
+                # Вставляем правильные значения в БД
+                with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+                    c = conn.cursor()
+                    c.execute("""
+                        INSERT INTO login_logs (user_id, username, ip_address, user_agent, login_time)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (user[0], user[1], ip, device, datetime.now()))
+                    conn.commit()
 
                 return redirect(url_for("chats"))
         flash("Неверные данные.")
@@ -372,11 +374,14 @@ def admin_panel():
 @socketio.on("connect")
 def handle_connect():
     if current_user.is_authenticated:
+        ip = get_real_ip()         
+        device = get_device()      
         online_users[current_user.id] = {
             "username": current_user.username,
-            "ip": request.remote_addr,
-            "user_agent": request.headers.get("User-Agent")
+            "ip": ip,
+            "user_agent": device
         }
+
 
 @socketio.on("disconnect")
 def handle_disconnect():
