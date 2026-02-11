@@ -11,6 +11,7 @@ from wtforms.validators import InputRequired, Length
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 load_dotenv()
+
 # --- APP CONFIG ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get("SECRET_KEY", "supersecretkey")
@@ -22,6 +23,7 @@ login_manager.login_view = "login"
 
 # --- DATABASE URL из Render ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
 
 # --- USER MODEL ---
 class User(UserMixin):
