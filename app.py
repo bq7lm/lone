@@ -9,26 +9,25 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField
 from wtforms.validators import InputRequired, Length
 from werkzeug.security import generate_password_hash, check_password_hash
-from user_agents import parse
 from werkzeug.middleware.proxy_fix import ProxyFix
-
+from user_agents import parse
+from functools import wraps
 from dotenv import load_dotenv
+
 load_dotenv()
 
-# --- APP CONFIG ---
-online_users = {}
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get("SECRET_KEY", "supersecretkey")
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2)
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
-# --- DATABASE URL из Render ---
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
+online_users = {}
 
 # --- USER MODEL ---
 class User(UserMixin):
@@ -60,6 +59,7 @@ class LoginForm(FlaskForm):
 def init_db():
     with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
         c = conn.cursor()
+        # users
         c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -68,15 +68,18 @@ def init_db():
             avatar VARCHAR(50) NOT NULL DEFAULT 'snowman.png'
         )
         """)
+        # messages
         c.execute("""
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
             sender INTEGER REFERENCES users(id),
             receiver INTEGER REFERENCES users(id),
             text TEXT,
-            timestamp TEXT
+            timestamp TEXT,
+            is_read BOOLEAN DEFAULT FALSE
         )
         """)
+        # login logs
         c.execute("""
         CREATE TABLE IF NOT EXISTS login_logs (
             id SERIAL PRIMARY KEY,
@@ -87,14 +90,27 @@ def init_db():
             login_time TIMESTAMP
         )
         """)
-
+        # проверка колонки is_read
+        c.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='messages' AND column_name='is_read'
+                ) THEN
+                    ALTER TABLE messages ADD COLUMN is_read BOOLEAN DEFAULT FALSE;
+                END IF;
+            END
+            $$;
+        """)
         conn.commit()
+
 init_db()
 
+# --- HELPERS ---
 def get_device():
     ua_string = request.headers.get("User-Agent")
     user_agent = parse(ua_string)
-
     if user_agent.is_mobile:
         device = "Mobile"
     elif user_agent.is_tablet:
@@ -103,9 +119,7 @@ def get_device():
         device = "PC"
     else:
         device = "Other"
-
     return f"{device} | {user_agent.browser.family} {user_agent.browser.version_string}"
-
 
 def get_real_ip():
     if request.headers.get("X-Forwarded-For"):
@@ -113,7 +127,6 @@ def get_real_ip():
     return request.remote_addr
 
 def admin_required(func):
-    from functools import wraps
     @wraps(func)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated or current_user.username != "admin":
@@ -136,7 +149,6 @@ def register():
     if form.validate_on_submit():
         username = form.username.data.strip().lower()
         password = form.password.data.strip()
-
         if not re.match(r'^[a-z0-9_]{4,10}$', username):
             flash("Username: 4-10 символов, латиница, цифры, _")
             return render_template("register.html", form=form)
@@ -150,46 +162,40 @@ def register():
             with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
                 c = conn.cursor()
                 c.execute(
-                    "INSERT INTO users (username, password, avatar) VALUES (%s, %s, %s)",
+                    "INSERT INTO users (username, password, avatar) VALUES (%s,%s,%s)",
                     (username, hashed_pw, default_avatar)
                 )
                 conn.commit()
             flash("Регистрация успешна. Войдите.")
             return redirect(url_for("login"))
         except psycopg2.IntegrityError:
-            flash("Username уже занят.")
+            flash("Username уже занят")
     return render_template("register.html", form=form)
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("chats"))
-
     form = LoginForm()
     if request.method == "POST":
         username = request.form.get("username", "").strip().lower()
         password = request.form.get("password", "").strip()
-        
         with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
             c = conn.cursor()
             c.execute("SELECT id, username, password, avatar FROM users WHERE username=%s", (username,))
             user = c.fetchone()
             if user and check_password_hash(user[2], password):
                 login_user(User(user[0], user[1], user[3]))
-                
-                # --- Логируем вход ---
+                # Логируем вход
                 ip = get_real_ip()
                 device = get_device()
                 c.execute("""
                     INSERT INTO login_logs (user_id, username, ip_address, user_agent, login_time)
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES (%s,%s,%s,%s,%s)
                 """, (user[0], user[1], ip, device, datetime.now()))
                 conn.commit()
-                # ---------------------
-                
                 return redirect(url_for("chats"))
-        flash("Неверные данные.")
-
+        flash("Неверные данные")
     return render_template("login.html", form=form)
 
 @app.route("/logout", methods=["POST"])
@@ -197,59 +203,6 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for("login"))
-
-@app.route("/chats")
-@login_required
-def chats():
-    with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
-        c = conn.cursor()
-        c.execute("""
-            SELECT u.id, u.username, u.avatar
-            FROM users u
-            JOIN messages m
-            ON (u.id = m.sender AND m.receiver = %s) OR (u.id = m.receiver AND m.sender = %s)
-            WHERE u.id != %s
-            GROUP BY u.id
-        """, (current_user.id, current_user.id, current_user.id))
-        users = c.fetchall()
-    return render_template("chats.html", users=users)
-
-@app.route("/chat/<int:user_id>")
-@login_required
-def chat(user_id):
-    with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
-        c = conn.cursor()
-        c.execute("SELECT username, avatar FROM users WHERE id=%s", (user_id,))
-        partner = c.fetchone()
-        if not partner:
-            return redirect(url_for("chats"))
-        partner_name, partner_avatar = partner
-        c.execute("""
-            SELECT sender, text, timestamp
-            FROM messages
-            WHERE (sender=%s AND receiver=%s) OR (sender=%s AND receiver=%s)
-            ORDER BY id
-        """, (current_user.id, user_id, user_id, current_user.id))
-        messages = c.fetchall()
-    room = f"{min(current_user.id, user_id)}_{max(current_user.id, user_id)}"
-    return render_template("chat.html", partner=partner_name, partner_avatar=partner_avatar, user_id=user_id, messages=messages, room=room)
-
-@app.route("/search", methods=["GET", "POST"])
-@login_required
-def search():
-    users = []
-    if request.method == "POST":
-        username = request.form.get("username", "").strip().lower()
-        if username:
-            with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
-                c = conn.cursor()
-                c.execute("""
-                    SELECT id, username, avatar
-                    FROM users
-                    WHERE username LIKE %s AND id != %s
-                """, ('%' + username + '%', current_user.id))
-                users = c.fetchall()
-    return render_template("search.html", users=users)
 
 @app.route("/account", methods=["GET", "POST"])
 @login_required
@@ -273,13 +226,11 @@ def account():
 
         with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
             c = conn.cursor()
-            # Аватар
             if avatar_choice in avatars:
                 c.execute("UPDATE users SET avatar=%s WHERE id=%s", (avatar_choice, current_user.id))
                 feedback["avatar"] = "Аватар обновлен"
                 selected_avatar = avatar_choice
 
-            # Username
             if new_username and new_username != current_username:
                 if not re.match(r'^[a-z0-9_]{4,10}$', new_username):
                     feedback["username"] = "Username: 4-10 символов, латиница, цифры и _"
@@ -291,7 +242,6 @@ def account():
                     except psycopg2.IntegrityError:
                         feedback["username"] = "Username уже занят"
 
-            # Password
             if new_password:
                 if not re.match(r'^[a-zA-Z0-9]{6,32}$', new_password):
                     feedback["password"] = "Пароль: 6-32 символа, латиница и цифры"
@@ -300,8 +250,8 @@ def account():
                     c.execute("UPDATE users SET password=%s WHERE id=%s", (hashed_pw, current_user.id))
                     feedback["password"] = "Пароль обновлен"
             conn.commit()
-
-    return render_template("account.html", avatars=avatars, selected_avatar=selected_avatar, current_username=current_username, feedback=feedback)
+    return render_template("account.html", avatars=avatars, selected_avatar=selected_avatar,
+                           current_username=current_username, feedback=feedback)
 
 @app.route("/check_username", methods=["POST"])
 @login_required
@@ -322,39 +272,10 @@ def check_username():
 def admin_panel():
     with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
         c = conn.cursor()
-
-        if request.method == "POST":
-            action = request.form.get("action")
-            user_id = request.form.get("user_id")
-
-            # Удаление
-            if action == "delete":
-                c.execute("DELETE FROM messages WHERE sender=%s OR receiver=%s", (user_id, user_id))
-                c.execute("DELETE FROM users WHERE id=%s", (user_id,))
-                conn.commit()
-
-            # Изменение username
-            if action == "update_username":
-                new_username = request.form.get("new_username").strip().lower()
-                if re.match(r'^[a-z0-9_]{4,10}$', new_username):
-                    c.execute("UPDATE users SET username=%s WHERE id=%s", (new_username, user_id))
-                    conn.commit()
-
-            # Изменение пароля
-            if action == "update_password":
-                new_password = request.form.get("new_password")
-                if re.match(r'^[a-zA-Z0-9]{6,32}$', new_password):
-                    hashed_pw = generate_password_hash(new_password)
-                    c.execute("UPDATE users SET password=%s WHERE id=%s", (hashed_pw, user_id))
-                    conn.commit()
-
-        # Статистика
         c.execute("SELECT COUNT(*) FROM users")
         total_users = c.fetchone()[0]
-
         c.execute("SELECT id, username FROM users ORDER BY id")
         users = c.fetchall()
-
         c.execute("""
             SELECT username, ip_address, user_agent, login_time
             FROM login_logs
@@ -362,34 +283,80 @@ def admin_panel():
             LIMIT 50
         """)
         logs = c.fetchall()
+    return render_template("admin.html", total_users=total_users, users=users, logs=logs,
+                           online_users=online_users)
 
-    return render_template(
-        "admin.html",
-        total_users=total_users,
-        users=users,
-        logs=logs,
-        online_users=online_users
-    )
+@app.route("/search", methods=["GET", "POST"])
+@login_required
+def search():
+    users = []
+    if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        if username:
+            with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+                c = conn.cursor()
+                c.execute("""
+                    SELECT id, username, avatar
+                    FROM users
+                    WHERE username LIKE %s AND id != %s
+                """, ('%' + username + '%', current_user.id))
+                users = c.fetchall()
+    return render_template("search.html", users=users)
+
+@app.route("/chats")
+@login_required
+def chats():
+    with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT u.id, u.username, u.avatar,
+            BOOL_OR(m.is_read=FALSE AND m.receiver=%s) as has_unread
+            FROM users u
+            LEFT JOIN messages m
+            ON (u.id=m.sender AND m.receiver=%s) OR (u.id=m.receiver AND m.sender=%s)
+            WHERE u.id != %s
+            GROUP BY u.id
+            ORDER BY MAX(m.id) DESC NULLS LAST
+        """, (current_user.id, current_user.id, current_user.id, current_user.id))
+        users = c.fetchall()
+    return render_template("chats.html", users=users)
+
+@app.route("/chat/<int:user_id>")
+@login_required
+def chat(user_id):
+    with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+        c = conn.cursor()
+        c.execute("SELECT username, avatar FROM users WHERE id=%s", (user_id,))
+        partner = c.fetchone()
+        if not partner:
+            return redirect(url_for("chats"))
+        partner_name, partner_avatar = partner
+        c.execute("""
+            SELECT sender, text, timestamp
+            FROM messages
+            WHERE (sender=%s AND receiver=%s) OR (sender=%s AND receiver=%s)
+            ORDER BY id
+        """, (current_user.id, user_id, user_id, current_user.id))
+        messages = c.fetchall() if c.rowcount>0 else []
+
+        # помечаем входящие сообщения как прочитанные
+        c.execute("""
+            UPDATE messages
+            SET is_read=TRUE
+            WHERE sender=%s AND receiver=%s AND is_read=FALSE
+        """, (user_id, current_user.id))
+        conn.commit()
+    room = f"{min(current_user.id,user_id)}_{max(current_user.id,user_id)}"
+    return render_template("chat.html", partner=partner_name, partner_avatar=partner_avatar,
+                           user_id=user_id, messages=messages, room=room)
+
+    
+
 # --- SOCKET.IO ---
-
 @socketio.on("connect")
 def handle_connect():
     if current_user.is_authenticated:
-        ip = get_real_ip()
-        device = get_device()
-        online_users[current_user.id] = {
-            "username": current_user.username,
-            "ip": ip,
-            "user_agent": device
-        }
-
-
-
-@socketio.on("disconnect")
-def handle_disconnect():
-    if current_user.id in online_users:
-        online_users.pop(current_user.id)
-
+        join_room(f"user_{current_user.id}")
 
 @socketio.on("join")
 def on_join(data):
@@ -404,19 +371,24 @@ def handle_message(data):
     timestamp = datetime.now().strftime("%H:%M")
     with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
         c = conn.cursor()
-        c.execute("INSERT INTO messages (sender, receiver, text, timestamp) VALUES (%s,%s,%s,%s)",
+        c.execute("INSERT INTO messages (sender, receiver, text, timestamp, is_read) VALUES (%s,%s,%s,%s,FALSE)",
                   (sender, receiver, text, timestamp))
         conn.commit()
-    room = f"{min(sender, receiver)}_{max(sender, receiver)}"
+    room = f"{min(sender,receiver)}_{max(sender,receiver)}"
     emit("receive_message", {"sender": sender, "text": text, "timestamp": timestamp}, room=room)
+    emit("new_message_notification", {"sender": sender}, room=f"user_{receiver}")
 
-
-@app.errorhandler(404)
-def page_not_found(e):
-    if current_user.is_authenticated:
-        return redirect(url_for("chats"))
-    else:
-        return redirect(url_for("login"))
+@socketio.on("mark_read")
+def handle_mark_read(data):
+    user_id = data["user_id"]
+    with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+        c = conn.cursor()
+        c.execute("""
+            UPDATE messages
+            SET is_read=TRUE
+            WHERE sender=%s AND receiver=%s AND is_read=FALSE
+        """, (user_id, current_user.id))
+        conn.commit()
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT",5000)))

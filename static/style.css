@@ -104,10 +104,13 @@ body {
     margin-top: 4px;
 }
 
+/* Поле ввода */
 .message-input {
+    flex: 0 0 auto; /* фиксированная высота */
     display: flex;
-    border-top: 1px solid #1f1f1f;
     padding: 10px;
+    border-top: 1px solid #1f1f1f;
+    background: #111;
 }
 
 .message-input input {
@@ -347,12 +350,21 @@ body {
 
 /* ===== CHAT HEADER ===== */
 
-.chat-header {
+/* Контейнер чата */
+.chat-container {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    height: 100vh; /* занимаем весь экран */
+}
+
+.chat-header {
+    flex: 0 0 auto; /* фиксированная высота, не растягивается */
     padding: 10px;
     border-bottom: 1px solid #1f1f1f;
+    background: #111;
+    z-index: 10;
 }
+
 
 .back-btn {
     color: red;
@@ -426,13 +438,13 @@ body {
 }
 
 .chat-box {
-    flex: 1;
+    flex: 1 1 auto; /* занимает все оставшееся место */
     overflow-y: auto;
     padding: 10px;
     display: flex;
     flex-direction: column;
-}
-/* ===== BOTTOM NAVIGATION ISLAND (темно-серый) ===== */
+    background: #0f0f0f;
+}/* ===== BOTTOM NAVIGATION ISLAND (темно-серый) ===== */
 .bottom-nav {
     position: fixed;
     bottom: 20px; /* небольшой отступ от низа экрана */
@@ -508,7 +520,7 @@ body {
     transform: scale(1.2);
 }
 
-<style>
+
 .account-header {
     text-align: center;
     margin-bottom: 20px;
@@ -528,4 +540,20 @@ body {
 .admin-btn:hover {
     background: #e60000;
 }
-</style>
+
+.new-message-dot {
+    width: 10px;
+    height: 10px;
+    background: #1e90ff; /* синий */
+    border-radius: 50%;
+    margin-left: auto;
+
+
+.name-menu {
+    min-width: 140px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.name-menu-item:hover {
+    background: #2a2a2a;
+}
