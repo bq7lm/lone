@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- APP CONFIG ---
+online_users = {}
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get("SECRET_KEY", "supersecretkey")
 socketio = SocketIO(app)
@@ -72,8 +74,29 @@ def init_db():
             timestamp TEXT
         )
         """)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS login_logs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER,
+            username VARCHAR(50),
+            ip_address VARCHAR(100),
+            user_agent TEXT,
+            login_time TIMESTAMP
+        )
+        """)
+
         conn.commit()
 init_db()
+
+
+def admin_required(func):
+    from functools import wraps
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.username != "admin":
+            return redirect(url_for("chats"))
+        return func(*args, **kwargs)
+    return wrapper
 
 # --- ROUTES ---
 @app.route("/")
@@ -84,6 +107,8 @@ def home():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("chats"))
     form = RegisterForm()
     if form.validate_on_submit():
         username = form.username.data.strip().lower()
@@ -114,6 +139,9 @@ def register():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("chats"))
+
     form = LoginForm()
     if form.validate_on_submit():
         username = form.username.data.strip().lower()
@@ -124,11 +152,20 @@ def login():
             user = c.fetchone()
             if user and check_password_hash(user[2], password):
                 login_user(User(user[0], user[1], user[3]))
+                ip = request.remote_addr
+                user_agent = request.headers.get("User-Agent")
+
+                c.execute("""
+                INSERT INTO login_logs (user_id, username, ip_address, user_agent, login_time)
+                VALUES (%s, %s, %s, %s, %s)
+                """, (user[0], user[1], ip, user_agent, datetime.now()))
+                conn.commit()
+
                 return redirect(url_for("chats"))
         flash("Неверные данные.")
     return render_template("login.html", form=form)
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     logout_user()
@@ -252,7 +289,77 @@ def check_username():
             return jsonify({"status": "taken"})
     return jsonify({"status": "ok"})
 
+@app.route("/admin", methods=["GET", "POST"])
+@login_required
+@admin_required
+def admin_panel():
+    with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+        c = conn.cursor()
+
+        if request.method == "POST":
+            action = request.form.get("action")
+            user_id = request.form.get("user_id")
+
+            # Удаление
+            if action == "delete":
+                c.execute("DELETE FROM messages WHERE sender=%s OR receiver=%s", (user_id, user_id))
+                c.execute("DELETE FROM users WHERE id=%s", (user_id,))
+                conn.commit()
+
+            # Изменение username
+            if action == "update_username":
+                new_username = request.form.get("new_username").strip().lower()
+                if re.match(r'^[a-z0-9_]{4,10}$', new_username):
+                    c.execute("UPDATE users SET username=%s WHERE id=%s", (new_username, user_id))
+                    conn.commit()
+
+            # Изменение пароля
+            if action == "update_password":
+                new_password = request.form.get("new_password")
+                if re.match(r'^[a-zA-Z0-9]{6,32}$', new_password):
+                    hashed_pw = generate_password_hash(new_password)
+                    c.execute("UPDATE users SET password=%s WHERE id=%s", (hashed_pw, user_id))
+                    conn.commit()
+
+        # Статистика
+        c.execute("SELECT COUNT(*) FROM users")
+        total_users = c.fetchone()[0]
+
+        c.execute("SELECT id, username FROM users ORDER BY id")
+        users = c.fetchall()
+
+        c.execute("""
+            SELECT username, ip_address, user_agent, login_time
+            FROM login_logs
+            ORDER BY login_time DESC
+            LIMIT 50
+        """)
+        logs = c.fetchall()
+
+    return render_template(
+        "admin.html",
+        total_users=total_users,
+        users=users,
+        logs=logs,
+        online_users=online_users
+    )
 # --- SOCKET.IO ---
+
+@socketio.on("connect")
+def handle_connect():
+    if current_user.is_authenticated:
+        online_users[current_user.id] = {
+            "username": current_user.username,
+            "ip": request.remote_addr,
+            "user_agent": request.headers.get("User-Agent")
+        }
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    if current_user.id in online_users:
+        online_users.pop(current_user.id)
+
+
 @socketio.on("join")
 def on_join(data):
     room = data["room"]
@@ -271,6 +378,14 @@ def handle_message(data):
         conn.commit()
     room = f"{min(sender, receiver)}_{max(sender, receiver)}"
     emit("receive_message", {"sender": sender, "text": text, "timestamp": timestamp}, room=room)
+
+
+@app.errorhandler(404)
+def page_not_found(e):
+    if current_user.is_authenticated:
+        return redirect(url_for("chats"))
+    else:
+        return redirect(url_for("login"))
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

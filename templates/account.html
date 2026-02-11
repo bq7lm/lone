@@ -10,6 +10,14 @@
         <img src="{{ url_for('static', filename='avatars/' + selected_avatar) }}" 
              alt="Аватар" id="current-avatar" 
              style="width:100px; height:100px; border-radius:50%; border:2px solid red; object-fit:cover;">
+             <div class="account-header">
+                <h2>@{{ current_username }}</h2>
+
+                {% if current_user.username == "admin" %}
+                    <a href="{{ url_for('admin_panel') }}" class="admin-btn">Admin Panel</a>
+                {% endif %}
+            </div>
+
         <button id="change-avatar-btn" type="button" 
                 style="background:red; padding: 10px 16px; border-radius:8px; font-weight:bold; cursor:pointer;">
             Изменить аватар
