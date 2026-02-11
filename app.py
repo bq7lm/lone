@@ -310,16 +310,18 @@ def chats():
         c = conn.cursor()
         c.execute("""
             SELECT u.id, u.username, u.avatar,
-            BOOL_OR(m.is_read=FALSE AND m.receiver=%s) as has_unread
+                   BOOL_OR(m.is_read=FALSE AND m.receiver=%s) as has_unread
             FROM users u
-            LEFT JOIN messages m
-            ON (u.id=m.sender AND m.receiver=%s) OR (u.id=m.receiver AND m.sender=%s)
+            JOIN messages m
+              ON (u.id=m.sender AND m.receiver=%s)
+              OR (u.id=m.receiver AND m.sender=%s)
             WHERE u.id != %s
-            GROUP BY u.id
-            ORDER BY MAX(m.id) DESC NULLS LAST
+            GROUP BY u.id, u.username, u.avatar
+            ORDER BY MAX(m.id) DESC
         """, (current_user.id, current_user.id, current_user.id, current_user.id))
         users = c.fetchall()
     return render_template("chats.html", users=users)
+
 
 @app.route("/chat/<int:user_id>")
 @login_required
