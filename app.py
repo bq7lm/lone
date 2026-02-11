@@ -9,6 +9,8 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField
 from wtforms.validators import InputRequired, Length
 from werkzeug.security import generate_password_hash, check_password_hash
+from user_agents import parse
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -88,6 +90,26 @@ def init_db():
         conn.commit()
 init_db()
 
+def get_device():
+    ua_string = request.headers.get("User-Agent")
+    user_agent = parse(ua_string)
+
+    if user_agent.is_mobile:
+        device = "Mobile"
+    elif user_agent.is_tablet:
+        device = "Tablet"
+    elif user_agent.is_pc:
+        device = "PC"
+    else:
+        device = "Other"
+
+    return f"{device} | {user_agent.browser.family} {user_agent.browser.version_string}"
+
+
+def get_real_ip():
+    if request.headers.get("X-Forwarded-For"):
+        return request.headers.get("X-Forwarded-For").split(",")[0].strip()
+    return request.remote_addr
 
 def admin_required(func):
     from functools import wraps
@@ -152,8 +174,10 @@ def login():
             user = c.fetchone()
             if user and check_password_hash(user[2], password):
                 login_user(User(user[0], user[1], user[3]))
-                ip = request.remote_addr
-                user_agent = request.headers.get("User-Agent")
+                ip = get_real_ip()
+
+                device = get_device()
+
 
                 c.execute("""
                 INSERT INTO login_logs (user_id, username, ip_address, user_agent, login_time)
