@@ -11,7 +11,6 @@
 <div class="app-wrapper">
     {% block content %}
         {% if current_user.is_authenticated %}
-            <!-- Основной контент приложения -->
             <div class="main">
                 {% block main_content %}{% endblock %}
             </div>
@@ -28,8 +27,40 @@
                 </a>
             </div>
 
+            <!-- Глобальный звук уведомлений -->
+            <audio id="notif-sound" src="{{ url_for('static', filename='notif.mp3') }}" preload="auto"></audio>
+
+            <!-- Socket.IO глобальный скрипт -->
+            <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+            <script>
+            document.addEventListener("DOMContentLoaded", () => {
+                const socket = io();
+                const currentUserId = {{ current_user.id }};
+                socket.emit("join", {room: `user_${currentUserId}`});
+
+                socket.on("new_message_notification", data => {
+                    const senderId = data.sender;
+
+                    // если находимся в чате с этим пользователем
+                    const chatPageUserId = {{ user_id if 'user_id' in globals() else 'null' }};
+                    if(senderId !== chatPageUserId){
+                        // находим чат в списке и добавляем dot
+                        const chatItem = document.querySelector(`.chat-item[data-user-id='${senderId}']`);
+                        if(chatItem && !chatItem.querySelector('.new-message-dot')){
+                            const dot = document.createElement('span');
+                            dot.classList.add('new-message-dot');
+                            chatItem.appendChild(dot);
+
+                            // проигрываем звук
+                            const sound = document.getElementById('notif-sound');
+                            if(sound) sound.play().catch(e => console.log(e));
+                        }
+                    }
+                });
+            });
+            </script>
+
         {% else %}
-            <!-- Форма авторизации -->
             <div class="auth-container">
                 {% block auth_content %}{% endblock %}
             </div>
