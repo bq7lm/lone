@@ -3,18 +3,18 @@
 
 <style>
 .admin-container {
-    max-width: 1000px;
+    max-width: 1100px;
     margin: auto;
 }
 
 .admin-card {
     background: #1e1e1e;
     padding: 20px;
-    border-radius: 10px;
+    border-radius: 12px;
     margin-bottom: 20px;
 }
 
-.admin-card h3 {
+.admin-card h2, .admin-card h3 {
     margin-top: 0;
 }
 
@@ -24,8 +24,9 @@
 }
 
 .admin-table th, .admin-table td {
-    padding: 8px;
+    padding: 10px;
     border-bottom: 1px solid #333;
+    text-align: left;
 }
 
 .admin-table th {
@@ -33,36 +34,66 @@
 }
 
 button {
-    padding: 6px 10px;
+    padding: 6px 12px;
     border: none;
     border-radius: 6px;
     cursor: pointer;
+    font-size: 12px;
 }
 
 .delete-btn { background: #ff4d4d; color: white; }
 .update-btn { background: #4CAF50; color: white; }
+
+input[type="text"] {
+    padding: 5px;
+    border-radius: 6px;
+    border: 1px solid #444;
+    background: #111;
+    color: white;
+    font-size: 12px;
+}
+
+.search-box {
+    margin-bottom: 15px;
+}
 </style>
 
 <div class="admin-container">
 
+<!-- HEADER -->
 <div class="admin-card">
     <h2>Admin Panel</h2>
     <p>Всего пользователей: <strong>{{ total_users }}</strong></p>
 </div>
 
+<!-- ONLINE USERS -->
 <div class="admin-card">
     <h3>Онлайн пользователи</h3>
+
+    {% if online_users %}
     <ul>
-    {% for id, data in online_users.items() %}
-        <li>{{ data.username }} | {{ data.ip }} | {{ data.user_agent }}</li>
-    {% endfor %}
+        {% for id, data in online_users.items() %}
+        <li>
+            <strong>{{ data.username }}</strong> |
+            {{ data.ip }} |
+            {{ data.user_agent }}
+        </li>
+        {% endfor %}
     </ul>
+    {% else %}
+    <p style="opacity:0.6;">Никто не онлайн</p>
+    {% endif %}
 </div>
 
+<!-- USERS -->
 <div class="admin-card">
     <h3>Пользователи</h3>
 
-    <table class="admin-table">
+    <div class="search-box">
+        <input type="text" id="userSearch" placeholder="Поиск пользователя...">
+    </div>
+
+    <table class="admin-table" id="usersTable">
         <tr>
             <th>ID</th>
             <th>Username</th>
@@ -75,28 +106,35 @@ button {
             <td>{{ user[1] }}</td>
             <td>
 
-                <!-- Delete -->
-                <form method="POST" style="display:inline;">
+                {% if user[1] != "admin" %}
+
+                <!-- DELETE -->
+                <form method="POST" style="display:inline;" 
+                      onsubmit="return confirm('Удалить пользователя {{ user[1] }}?');">
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="user_id" value="{{ user[0] }}">
-                    <button class="delete-btn">Delete</button>
+                    <button type="submit" class="delete-btn">Delete</button>
                 </form>
 
-                <!-- Update username -->
+                <!-- UPDATE USERNAME -->
                 <form method="POST" style="display:inline;">
                     <input type="hidden" name="action" value="update_username">
                     <input type="hidden" name="user_id" value="{{ user[0] }}">
                     <input type="text" name="new_username" placeholder="new username">
-                    <button class="update-btn">Update</button>
+                    <button type="submit" class="update-btn">Update</button>
                 </form>
 
-                <!-- Update password -->
+                <!-- UPDATE PASSWORD -->
                 <form method="POST" style="display:inline;">
                     <input type="hidden" name="action" value="update_password">
                     <input type="hidden" name="user_id" value="{{ user[0] }}">
                     <input type="text" name="new_password" placeholder="new password">
-                    <button class="update-btn">Password</button>
+                    <button type="submit" class="update-btn">Password</button>
                 </form>
+
+                {% else %}
+                <span style="color:#777;">Protected</span>
+                {% endif %}
 
             </td>
         </tr>
@@ -104,8 +142,10 @@ button {
     </table>
 </div>
 
+<!-- LOGIN LOGS -->
 <div class="admin-card">
     <h3>Последние входы</h3>
+
     <table class="admin-table">
         <tr>
             <th>User</th>
@@ -125,5 +165,19 @@ button {
 </div>
 
 </div>
+
+<!-- SEARCH SCRIPT -->
+<script>
+document.getElementById("userSearch").addEventListener("keyup", function() {
+    let filter = this.value.toLowerCase();
+    let rows = document.querySelectorAll("#usersTable tr");
+
+    rows.forEach((row, index) => {
+        if(index === 0) return; // skip header
+        let username = row.children[1].textContent.toLowerCase();
+        row.style.display = username.includes(filter) ? "" : "none";
+    });
+});
+</script>
 
 {% endblock %}

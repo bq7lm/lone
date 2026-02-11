@@ -108,6 +108,24 @@ def init_db():
 init_db()
 
 # --- HELPERS ---
+@app.before_request
+def log_user_activity():
+    if current_user.is_authenticated:
+        if request.endpoint != 'static':
+            with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+                c = conn.cursor()
+                c.execute("""
+                    INSERT INTO login_logs (user_id, username, ip_address, user_agent, login_time)
+                    VALUES (%s,%s,%s,%s,%s)
+                """, (
+                    current_user.id,
+                    current_user.username,
+                    get_real_ip(),
+                    get_device(),
+                    datetime.now()
+                ))
+                conn.commit()
+
 def get_device():
     ua_string = request.headers.get("User-Agent")
     user_agent = parse(ua_string)
@@ -270,12 +288,45 @@ def check_username():
 @login_required
 @admin_required
 def admin_panel():
+
     with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
         c = conn.cursor()
+
+        # --- ОБРАБОТКА ДЕЙСТВИЙ ---
+        if request.method == "POST":
+            action = request.form.get("action")
+            user_id = request.form.get("user_id")
+
+            if action == "delete" and user_id:
+                c.execute("DELETE FROM messages WHERE sender=%s OR receiver=%s", (user_id, user_id))
+                c.execute("DELETE FROM users WHERE id=%s", (user_id,))
+                conn.commit()
+
+            elif action == "update_username":
+                new_username = request.form.get("new_username", "").strip().lower()
+                if new_username:
+                    try:
+                        c.execute("UPDATE users SET username=%s WHERE id=%s",
+                                  (new_username, user_id))
+                        conn.commit()
+                    except psycopg2.IntegrityError:
+                        conn.rollback()
+
+            elif action == "update_password":
+                new_password = request.form.get("new_password", "").strip()
+                if new_password:
+                    hashed_pw = generate_password_hash(new_password, method="pbkdf2:sha256")
+                    c.execute("UPDATE users SET password=%s WHERE id=%s",
+                              (hashed_pw, user_id))
+                    conn.commit()
+
+        # --- ДАННЫЕ ДЛЯ ОТОБРАЖЕНИЯ ---
         c.execute("SELECT COUNT(*) FROM users")
         total_users = c.fetchone()[0]
+
         c.execute("SELECT id, username FROM users ORDER BY id")
         users = c.fetchall()
+
         c.execute("""
             SELECT username, ip_address, user_agent, login_time
             FROM login_logs
@@ -283,8 +334,13 @@ def admin_panel():
             LIMIT 50
         """)
         logs = c.fetchall()
-    return render_template("admin.html", total_users=total_users, users=users, logs=logs,
+
+    return render_template("admin.html",
+                           total_users=total_users,
+                           users=users,
+                           logs=logs,
                            online_users=online_users)
+
 
 @app.route("/search", methods=["GET", "POST"])
 @login_required
@@ -358,7 +414,23 @@ def chat(user_id):
 @socketio.on("connect")
 def handle_connect():
     if current_user.is_authenticated:
+        ip = request.remote_addr
+        user_agent = request.headers.get("User-Agent")
+
+        online_users[current_user.id] = {
+            "username": current_user.username,
+            "ip": ip,
+            "user_agent": user_agent
+        }
+
         join_room(f"user_{current_user.id}")
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    if current_user.is_authenticated:
+        online_users.pop(current_user.id, None)
+
+
 
 @socketio.on("join")
 def on_join(data):
