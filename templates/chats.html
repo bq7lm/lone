@@ -35,29 +35,7 @@
     {% endfor %}
 </div>
 
-<!-- Звук уведомления -->
-<audio id="notif-sound" src="{{ url_for('static', filename='notif.mp3') }}" preload="auto"></audio>
-
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
-const socket = io();
-socket.on('connect', () => console.log('Socket connected'));
-
-// уведомление о новом сообщении
-socket.on('new_message_notification', function(data) {
-    const chatItem = document.querySelector(`.chat-item[data-user-id='${data.sender}']`);
-    if (chatItem && !chatItem.querySelector('.new-message-dot')) {
-        const dot = document.createElement('span');
-        dot.classList.add('new-message-dot');
-        chatItem.appendChild(dot);
-
-        // звук уведомления
-        const sound = document.getElementById('notif-sound');
-        if (sound) sound.play();
-    }
-});
-
-// клик по чату → помечаем сообщения прочитанными
 document.querySelectorAll('.chat-item').forEach(item => {
     item.addEventListener('click', () => {
         const dot = item.querySelector('.new-message-dot');

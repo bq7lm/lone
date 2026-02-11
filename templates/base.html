@@ -29,9 +29,27 @@
                 </a>
             </div>
 
-            <!-- Скрипт для глобальной переменной chatPageUserId -->
+            <!-- Глобальный скрипт Socket.IO -->
+            <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+            <audio id="notif-sound" src="{{ url_for('static', filename='notif.mp3') }}" preload="auto"></audio>
             <script>
-                const chatPageUserId = {{ user_id | default('null') }};
+                const socket = io();
+                socket.on('connect', () => console.log('Socket connected'));
+
+                // уведомление о новом сообщении
+                socket.on('new_message_notification', function(data) {
+                    // ищем чат в списке, если есть
+                    const chatItem = document.querySelector(`.chat-item[data-user-id='${data.sender}']`);
+                    if (chatItem && !chatItem.querySelector('.new-message-dot')) {
+                        const dot = document.createElement('span');
+                        dot.classList.add('new-message-dot');
+                        chatItem.appendChild(dot);
+                    }
+
+                    // звук уведомления
+                    const sound = document.getElementById('notif-sound');
+                    if (sound) sound.play();
+                });
             </script>
 
         {% else %}
