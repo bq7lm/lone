@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Lone</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+{% if current_user.is_authenticated %}
+<div class="app">
+    
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="logo">
+            <img src="{{ url_for('static', filename='lone-icon.png') }}" alt="Lone Icon Sidebar">
+            <span class="logo-text">Lone</span>
+        </div>
+
+        <a href="{{ url_for('chats') }}" class="nav-item">💬 Чаты</a>
+        <a href="{{ url_for('search') }}" class="nav-item">🔍 Поиск</a>
+        <a href="{{ url_for('account') }}" class="nav-item">⚙ Аккаунт</a>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+{% else %}
+<div class="auth-container">
+{% endif %}
+
+        {% block content %}{% endblock %}
+
+{% if current_user.is_authenticated %}
+    </div>
+</div>
+{% else %}
+</div>
+{% endif %}
+
+</body>
+</html>

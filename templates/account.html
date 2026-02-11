@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="section-title">Настройки аккаунта</h2>
+
+<form method="POST" class="avatar-form">
+    <div class="avatar-list">
+        {% for avatar in avatars %}
+        <label class="avatar-item {% if avatar == selected_avatar %}selected{% endif %}">
+            <input type="radio" name="avatar" value="{{ avatar }}" {% if avatar == selected_avatar %}checked{% endif %}>
+            <img src="{{ url_for('static', filename='avatars/' + avatar) }}" alt="{{ avatar }}" style="border-radius:50%; width:80px; height:80px; border:2px solid red;">
+
+        </label>
+        {% endfor %}
+    </div>
+
+    <button type="submit" class="auth-btn">Сохранить</button>
+</form>
+
+{% endblock %}

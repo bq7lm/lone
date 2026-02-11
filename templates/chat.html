@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="chat-header">
+    <a href="{{ url_for('chats') }}" class="back-btn">← Назад</a>
+    <img src="{{ url_for('static', filename='avatars/' + partner_avatar) }}" class="chat-avatar" alt="{{ partner }}">
+    <span class="chat-name">{{ partner }}</span>
+</div>
+
+<div id="chat" class="chat-box">
+    {% for msg in messages %}
+        <div class="message {% if msg[0] == current_user.id %}me{% else %}other{% endif %}">
+            {{ msg[1] }}
+            <div class="message-time">{{ msg[2] }}</div>
+        </div>
+    {% endfor %}
+</div>
+
+<div class="message-input">
+    <input id="message" placeholder="Написать сообщение...">
+    <button onclick="sendMessage()">➤</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+<script>
+var socket = io();
+var room = "{{ room }}";
+
+socket.emit("join", {room: room});
+
+function sendMessage() {
+    var input = document.getElementById("message");
+    if (input.value.trim() === "") return;
+
+    socket.emit("send_message", {
+        receiver: {{ user_id }},
+        text: input.value
+    });
+
+    input.value = "";
+}
+
+socket.on("receive_message", function(data) {
+    var chat = document.getElementById("chat");
+
+    var div = document.createElement("div");
+    div.classList.add("message");
+
+    if (data.sender == {{ current_user.id }})
+        div.classList.add("me");
+    else
+        div.classList.add("other");
+
+    div.innerHTML = data.text +
+        "<div class='message-time'>" + data.timestamp + "</div>";
+
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+});
+</script>
+
+
+{% endblock %}

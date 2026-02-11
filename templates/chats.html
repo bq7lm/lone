@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="section-title">Ваши чаты</h2>
+
+<div class="chat-list">
+    {% for user in users %}
+    <a href="{{ url_for('chat', user_id=user[0]) }}" class="chat-item">
+        <div class="avatar">
+            <img src="{{ url_for('static', filename='avatars/' + user[2]) }}" alt="{{ user[1] }}">
+        </div>
+        <div class="chat-info">
+            <div class="chat-name">{{ user[1] }}</div>
+            <div class="chat-preview">Нажмите чтобы открыть диалог</div>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+
+{% endblock %}

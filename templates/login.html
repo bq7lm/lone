@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="auth-box">
+
+    <!-- Вместо auth-logo вертикально -->
+    <div class="auth-logo">
+        <img src="{{ url_for('static', filename='lone-icon.png') }}" alt="Lone Icon">
+        <span class="auth-title">Lone</span>
+    </div>
+
+
+    <p class="auth-sub">Вход в аккаунт</p>
+
+    <form method="POST" id="login-form">
+        {{ form.hidden_tag() }}
+
+        <div class="input-group">
+            {{ form.username(placeholder="Username", id="username") }}
+        </div>
+
+        <div class="input-group">
+            {{ form.password(placeholder="Пароль", id="password") }}
+        </div>
+
+        <div id="login-feedback" class="feedback"></div>
+
+        <button class="auth-btn" type="submit">Войти</button>
+    </form>
+
+    <p class="auth-switch">
+        Нет аккаунта?
+        <span class="auth-link" onclick="window.location='{{ url_for('register') }}'">Создать</span>
+    </p>
+</div>
+
+<script>
+const form = document.getElementById('login-form');
+const feedback = document.getElementById('login-feedback');
+
+form.addEventListener('submit', (e) => {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+    feedback.innerHTML = '';
+
+    if (username.length < 4) {
+        e.preventDefault();
+        feedback.innerHTML = 'Username слишком короткий';
+        return;
+    }
+    if (password.length < 6) {
+        e.preventDefault();
+        feedback.innerHTML = 'Пароль слишком короткий';
+        return;
+    }
+});
+</script>
+
+{% endblock %}
