@@ -10,6 +10,7 @@ from wtforms import StringField, PasswordField
 from wtforms.validators import InputRequired, Length
 from werkzeug.security import generate_password_hash, check_password_hash
 from user_agents import parse
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -20,7 +21,7 @@ online_users = {}
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get("SECRET_KEY", "supersecretkey")
 socketio = SocketIO(app)
-
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
@@ -165,9 +166,10 @@ def login():
         return redirect(url_for("chats"))
 
     form = LoginForm()
-    if form.validate_on_submit():
-        username = form.username.data.strip().lower()
-        password = form.password.data.strip()
+    if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        password = request.form.get("password", "").strip()
+        
         with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
             c = conn.cursor()
             c.execute("SELECT id, username, password, avatar FROM users WHERE username=%s", (username,))
@@ -175,20 +177,19 @@ def login():
             if user and check_password_hash(user[2], password):
                 login_user(User(user[0], user[1], user[3]))
                 
+                # --- Логируем вход ---
                 ip = get_real_ip()
                 device = get_device()
-
-                # Вставляем правильные значения в БД
-                with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
-                    c = conn.cursor()
-                    c.execute("""
-                        INSERT INTO login_logs (user_id, username, ip_address, user_agent, login_time)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (user[0], user[1], ip, device, datetime.now()))
-                    conn.commit()
-
+                c.execute("""
+                    INSERT INTO login_logs (user_id, username, ip_address, user_agent, login_time)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (user[0], user[1], ip, device, datetime.now()))
+                conn.commit()
+                # ---------------------
+                
                 return redirect(url_for("chats"))
         flash("Неверные данные.")
+
     return render_template("login.html", form=form)
 
 @app.route("/logout", methods=["POST"])
@@ -374,13 +375,14 @@ def admin_panel():
 @socketio.on("connect")
 def handle_connect():
     if current_user.is_authenticated:
-        ip = get_real_ip()         
-        device = get_device()      
+        ip = get_real_ip()
+        device = get_device()
         online_users[current_user.id] = {
             "username": current_user.username,
             "ip": ip,
             "user_agent": device
         }
+
 
 
 @socketio.on("disconnect")
