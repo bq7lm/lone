@@ -207,7 +207,7 @@ def logout():
 @app.route("/account", methods=["GET", "POST"])
 @login_required
 def account():
-    avatars = ["rabbit.png", "dog.png", "cat.png", "snowman.png", "lion.png"]
+    avatars = ["rabbit.png", "dog.png", "cat.png", "snowman.png", "lion.png","tiger.png", "horse.png", "monkey.png"]
     feedback = {}
     selected_avatar = None
     current_username = None
@@ -350,7 +350,7 @@ def chat(user_id):
     return render_template("chat.html", partner=partner_name, partner_avatar=partner_avatar,
                            user_id=user_id, messages=messages, room=room)
 
-    
+
 
 # --- SOCKET.IO ---
 @socketio.on("connect")
