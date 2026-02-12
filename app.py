@@ -13,6 +13,10 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from user_agents import parse
 from functools import wraps
 from dotenv import load_dotenv
+import base64
+import json
+from py_vapid import Vapid
+from pywebpush import webpush, WebPushException
 
 load_dotenv()
 
@@ -28,6 +32,9 @@ login_manager.init_app(app)
 login_manager.login_view = "login"
 
 online_users = {}
+
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
 
 # --- USER MODEL ---
 class User(UserMixin):
@@ -45,6 +52,12 @@ def load_user(user_id):
         if user:
             return User(user[0], user[1], user[2])
     return None
+
+@app.context_processor
+def utility_processor():
+    return {
+        'vapid_public_key': os.environ.get('VAPID_PUBLIC_KEY', '')
+    }
 
 # --- FORMS ---
 class RegisterForm(FlaskForm):
@@ -103,11 +116,83 @@ def init_db():
             END
             $$;
         """)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id),
+            endpoint TEXT NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
         conn.commit()
+
 
 init_db()
 
 # --- HELPERS ---
+def send_push_notification(user_id, title, body, url="/chats"):
+    """Отправка пуш-уведомления"""
+    try:
+        # Получаем подписку пользователя
+        with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT endpoint, p256dh, auth 
+                FROM push_subscriptions 
+                WHERE user_id=%s 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """, (user_id,))
+            sub = c.fetchone()
+        
+        if not sub:
+            return False
+        
+        # Формируем данные для отправки
+        subscription_info = {
+            "endpoint": sub[0],
+            "keys": {
+                "p256dh": sub[1],
+                "auth": sub[2]
+            }
+        }
+        
+        # Данные уведомления
+        data = json.dumps({
+            "title": title,
+            "body": body,
+            "url": url,
+            "icon": "/static/icons/icon-192.png",
+            "badge": "/static/icons/icon-72.png",
+            "vibrate": [200, 100, 200]
+        })
+        
+        # Отправляем
+        webpush(
+            subscription_info=subscription_info,
+            data=data,
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={
+                "sub": "mailto:admin@localhost",
+                "aud": request.host_url if request else "https://yourdomain.com"
+            }
+        )
+        return True
+    except WebPushException as e:
+        print(f"Push error: {e}")
+        # Если подписка невалидна - удаляем её
+        if e.response and e.response.status_code == 410:
+            with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+                c = conn.cursor()
+                c.execute("DELETE FROM push_subscriptions WHERE endpoint=%s", (sub[0],))
+                conn.commit()
+        return False
+    except Exception as e:
+        print(f"Push error: {e}")
+        return False
+
 @app.before_request
 def log_user_activity():
     if current_user.is_authenticated:
@@ -153,6 +238,34 @@ def admin_required(func):
     return wrapper
 
 # --- ROUTES ---
+@app.route("/subscribe", methods=["POST"])
+@login_required
+def subscribe():
+    try:
+        data = request.get_json()
+        
+        # Сохраняем подписку
+        with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+            c = conn.cursor()
+            # Удаляем старые подписки этого пользователя
+            c.execute("DELETE FROM push_subscriptions WHERE user_id=%s", (current_user.id,))
+            # Сохраняем новую
+            c.execute("""
+                INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                current_user.id,
+                data['endpoint'],
+                data['keys']['p256dh'],
+                data['keys']['auth']
+            ))
+            conn.commit()
+        
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        print(f"Subscribe error: {e}")
+        return jsonify({"status": "error"}), 500
+
 @app.route("/")
 def home():
     if current_user.is_authenticated:
@@ -443,14 +556,31 @@ def handle_message(data):
     receiver = data["receiver"]
     text = data["text"]
     timestamp = datetime.now().strftime("%H:%M")
+    
     with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
         c = conn.cursor()
         c.execute("INSERT INTO messages (sender, receiver, text, timestamp, is_read) VALUES (%s,%s,%s,%s,FALSE)",
                   (sender, receiver, text, timestamp))
         conn.commit()
+    
     room = f"{min(sender,receiver)}_{max(sender,receiver)}"
     emit("receive_message", {"sender": sender, "text": text, "timestamp": timestamp}, room=room)
     emit("new_message_notification", {"sender": sender}, room=f"user_{receiver}")
+    
+    # Получаем имя отправителя
+    with psycopg2.connect(DATABASE_URL, sslmode="require") as conn:
+        c = conn.cursor()
+        c.execute("SELECT username FROM users WHERE id=%s", (sender,))
+        sender_name = c.fetchone()[0]
+    
+    # Отправляем пуш, если получатель не онлайн
+    if receiver not in online_users:
+        send_push_notification(
+            receiver,
+            f"@{sender_name}",
+            text[:100] + ("..." if len(text) > 100 else ""),
+            f"/chat/{sender}"
+        )
 
 @socketio.on("mark_read")
 def handle_mark_read(data):

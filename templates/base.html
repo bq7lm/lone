@@ -3,7 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <title>Lone</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Мета теги для PWA и мобильных устройств -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Lone">
+    <meta name="theme-color" content="#075e54">
+    <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- PWA Манифест -->
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    
+    <!-- Иконки для iOS -->
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+    <link rel="apple-touch-icon" sizes="152x152" href="{{ url_for('static', filename='icons/icon-152.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+    <link rel="apple-touch-icon" sizes="167x167" href="{{ url_for('static', filename='icons/icon-152.png') }}">
+    
+    <!-- Основной CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -60,6 +78,80 @@
         {% endif %}
     {% endblock %}
 </div>
+
+<!-- Service Worker регистрация - всегда загружается -->
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+            navigator.serviceWorker.register('/static/sw.js')
+                .then(function(registration) {
+                    console.log('✅ ServiceWorker зарегистрирован:', registration.scope);
+                })
+                .catch(function(err) {
+                    console.log('❌ Ошибка регистрации ServiceWorker:', err);
+                });
+        });
+    }
+    
+    // Глобальная функция запроса уведомлений
+    window.requestNotificationPermission = function() {
+        if (!('Notification' in window)) {
+            console.log('Этот браузер не поддерживает уведомления');
+            alert('Ваш браузер не поддерживает уведомления');
+            return Promise.reject('Not supported');
+        }
+        
+        return Notification.requestPermission().then(function(permission) {
+            if (permission === 'granted') {
+                console.log('✅ Уведомления разрешены');
+                subscribeUserToPush();
+                return true;
+            } else {
+                console.log('❌ Уведомления запрещены');
+                return false;
+            }
+        });
+    };
+    
+    // Подписка на пуш-уведомления
+    async function subscribeUserToPush() {
+        try {
+            const registration = await navigator.serviceWorker.ready;
+            
+            // Получаем публичный ключ VAPID из meta тега или переменной
+            const applicationServerKey = 'BKGdWPoM2lmfZBGVKxNZXN93q1fLJBvENyGL7FlRQWdVAJeT1NK0JzzqgGemHTInnlcTqZ2kTZlczlPRwccv-Mk';
+            
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: new Uint8Array(applicationServerKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)))
+            });
+            
+            console.log('✅ Подписка на push получена');
+            
+            // Отправляем подписку на сервер
+            fetch('/subscribe', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(subscription)
+            }).then(response => {
+                if (response.ok) {
+                    console.log('✅ Подписка отправлена на сервер');
+                }
+            });
+        } catch (err) {
+            console.log('❌ Ошибка подписки на push:', err);
+        }
+    }
+    
+    // Проверяем статус уведомлений при загрузке
+    document.addEventListener('DOMContentLoaded', function() {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            console.log('ℹ️ Уведомления уже включены');
+        }
+    });
+</script>
 
 </body>
 </html>
