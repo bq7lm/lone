@@ -338,7 +338,7 @@ def logout():
 @app.route("/account", methods=["GET", "POST"])
 @login_required
 def account():
-    avatars = ["rabbit.png", "dog.png", "cat.png", "snowman.png", "lion.png","tiger.png", "horse.png", "monkey.png"]
+    avatars = ["rabbit.png", "dog.png", "cat.png", "snowman.png", "lion.png","tiger.png", "horse.png", "monkey.png", "nikita.png"]
     feedback = {}
     selected_avatar = None
     current_username = None
